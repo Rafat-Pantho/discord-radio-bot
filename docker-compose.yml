@@ -1,0 +1,9 @@
+services:
+  music-bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    # To use YouTube cookies, put cookies.txt next to this file, uncomment
+    # the volume below and set YTDLP_COOKIE_FILE=/app/cookies.txt in .env
+    # volumes:
+    #   - ./cookies.txt:/app/cookies.txt:ro

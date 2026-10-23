@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import re
 from collections import deque
 import random
+from aiohttp import web
 
 # Load environment variables
 load_dotenv()
@@ -30,11 +31,15 @@ USER_AGENT = (
     "Chrome/127.0.0.0 Safari/537.36"
 )
 
-# Initialize Spotify client
-spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(
-    client_id=SPOTIFY_CLIENT_ID,
-    client_secret=SPOTIFY_CLIENT_SECRET
-))
+# Initialize Spotify client (optional: the bot still runs without credentials)
+spotify = None
+if SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET:
+    spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(
+        client_id=SPOTIFY_CLIENT_ID,
+        client_secret=SPOTIFY_CLIENT_SECRET
+    ))
+else:
+    print("WARNING: Spotify credentials not set; Spotify links will be unavailable.")
 
 # yt-dlp configuration (robust defaults + retries + headers)
 ytdl_format_options = {
@@ -138,6 +143,19 @@ class YTDLSource(discord.PCMVolumeTransformer):
         filename = data['url'] if stream else ytdl.prepare_filename(data)
         return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
 
+async def start_health_server(port: int):
+    """Serve a tiny HTTP endpoint for health checks / keep-alive pings."""
+    async def health(request):
+        return web.Response(text="OK")
+
+    app = web.Application()
+    app.router.add_route('*', '/', health)
+    app.router.add_route('*', '/health', health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    await web.TCPSite(runner, '0.0.0.0', port).start()
+    print(f"Health server listening on port {port}")
+
 class MusicBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -152,7 +170,14 @@ class MusicBot(commands.Bot):
         self.control_messages = {}
         # Track scheduled cleanup tasks per guild
         self._cleanup_tasks = {}
-        
+
+    async def setup_hook(self):
+        # Hosts like Render require a web service to listen on $PORT; also lets
+        # an uptime monitor ping the bot so free instances don't spin down.
+        port = os.getenv('PORT')
+        if port:
+            await start_health_server(int(port))
+
     async def on_ready(self):
         print(f'🎵 {self.user} has connected to Discord!')
         print(f'Bot is ready in {len(self.guilds)} guilds')
@@ -402,6 +427,8 @@ async def leave(ctx):
 
 def extract_spotify_info(url):
     """Extract Spotify track/playlist info"""
+    if spotify is None:
+        return None
     try:
         if 'track/' in url:
             track_id = url.split('track/')[-1].split('?')[0]

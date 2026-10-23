@@ -164,3 +164,16 @@ discord bot/
 ## License
 
 This project is for educational purposes. Ensure compliance with Discord ToS, YouTube ToS, and Spotify ToS when using.
+## Deployment (Docker)
+
+```bash
+cp .env.example .env   # fill in DISCORD_TOKEN (and optional Spotify keys)
+docker compose up -d --build
+docker compose logs -f
+```
+
+The image bundles Python, FFmpeg, libopus and libsodium, so it runs on any VPS or
+container host (Railway, Fly.io, Render worker, etc.). Set the variables from
+`.env.example` as environment variables on the host instead of using a `.env` file.
+`YTDLP_COOKIES_FROM_BROWSER` does not work in a container; use `YTDLP_COOKIE_FILE`
+with a mounted `cookies.txt` (see `docker-compose.yml`).
