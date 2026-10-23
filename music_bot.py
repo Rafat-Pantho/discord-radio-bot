@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 import asyncio
 import os
 import yt_dlp
@@ -170,6 +171,11 @@ class MusicBot(commands.Bot):
         self.control_messages = {}
         # Track scheduled cleanup tasks per guild
         self._cleanup_tasks = {}
+
+    async def setup_hook(self):
+        # Register the slash (/) versions of the commands with Discord
+        synced = await self.tree.sync()
+        print(f"Synced {len(synced)} slash commands")
 
     async def on_ready(self):
         print(f'🎵 {self.user} has connected to Discord!')
@@ -376,9 +382,15 @@ class MusicControlView(discord.ui.View):
         else:
             await self._send_ephemeral(interaction, "ℹ️ I'm not connected.")
 
-@bot.command(name='join', aliases=['connect'])
+async def defer_if_slash(ctx):
+    """Slash commands must be answered within 3s; defer slow ones (no-op for ! commands)."""
+    if ctx.interaction and not ctx.interaction.response.is_done():
+        await ctx.defer()
+
+@bot.hybrid_command(name='join', aliases=['connect'])
 async def join(ctx):
     """Join the voice channel"""
+    await defer_if_slash(ctx)
     if not ctx.author.voice:
         embed = discord.Embed(title="❌ Error", description="You need to be in a voice channel!", color=0xff0000)
         await ctx.send(embed=embed)
@@ -398,7 +410,7 @@ async def join(ctx):
     embed = discord.Embed(title="🎵 Joined Voice Channel", description=f"Connected to {channel.name}", color=0x00ff00)
     await ctx.send(embed=embed)
 
-@bot.command(name='leave', aliases=['disconnect'])
+@bot.hybrid_command(name='leave', aliases=['disconnect'])
 async def leave(ctx):
     """Leave the voice channel"""
     if not ctx.voice_client:
@@ -560,9 +572,11 @@ async def add_to_queue(ctx, query: str, custom_title: str | None = None, silent:
         )
         await ctx.send(embed=embed)
 
-@bot.command(name='play', aliases=['p'])
-async def play(ctx, *, query):
+@bot.hybrid_command(name='play', aliases=['p'])
+@app_commands.describe(query="Song name, YouTube URL, or Spotify track/playlist URL")
+async def play(ctx, *, query: str):
     """Play music from YouTube or Spotify"""
+    await defer_if_slash(ctx)
     if not ctx.author.voice:
         embed = discord.Embed(title="❌ Error", description="You need to be in a voice channel!", color=0xff0000)
         await ctx.send(embed=embed)
@@ -684,7 +698,7 @@ async def play_next(ctx):
         print(f"Error playing song: {e}")
         await play_next(ctx)  # Try next song
 
-@bot.command(name='skip', aliases=['s'])
+@bot.hybrid_command(name='skip', aliases=['s'])
 async def skip(ctx):
     """Skip the current song"""
     if not ctx.voice_client or not ctx.voice_client.is_playing():
@@ -696,7 +710,7 @@ async def skip(ctx):
     embed = discord.Embed(title="⏭️ Skipped", description="Skipped the current song", color=0xff9900)
     await ctx.send(embed=embed)
 
-@bot.command(name='queue', aliases=['q'])
+@bot.hybrid_command(name='queue', aliases=['q'])
 async def show_queue(ctx):
     """Show the current queue"""
     queue = bot.get_queue(ctx.guild.id)
@@ -726,7 +740,7 @@ async def show_queue(ctx):
     
     await ctx.send(embed=embed)
 
-@bot.command(name='clear')
+@bot.hybrid_command(name='clear')
 async def clear_queue(ctx):
     """Clear the queue"""
     queue = bot.get_queue(ctx.guild.id)
@@ -735,7 +749,7 @@ async def clear_queue(ctx):
     embed = discord.Embed(title="🗑️ Queue Cleared", description="Cleared all songs from the queue", color=0xff9900)
     await ctx.send(embed=embed)
 
-@bot.command(name='pause')
+@bot.hybrid_command(name='pause')
 async def pause(ctx):
     """Pause the current song"""
     if ctx.voice_client and ctx.voice_client.is_playing():
@@ -746,7 +760,7 @@ async def pause(ctx):
         embed = discord.Embed(title="❌ Error", description="Nothing is currently playing!", color=0xff0000)
         await ctx.send(embed=embed)
 
-@bot.command(name='resume')
+@bot.hybrid_command(name='resume')
 async def resume(ctx):
     """Resume the current song"""
     if ctx.voice_client and ctx.voice_client.is_paused():
@@ -757,7 +771,7 @@ async def resume(ctx):
         embed = discord.Embed(title="❌ Error", description="Nothing is currently paused!", color=0xff0000)
         await ctx.send(embed=embed)
 
-@bot.command(name='stop')
+@bot.hybrid_command(name='stop')
 async def stop(ctx):
     """Stop the current song and clear queue"""
     if ctx.voice_client:
@@ -770,7 +784,8 @@ async def stop(ctx):
         embed = discord.Embed(title="❌ Error", description="Nothing is currently playing!", color=0xff0000)
         await ctx.send(embed=embed)
 
-@bot.command(name='volume', aliases=['vol'])
+@bot.hybrid_command(name='volume', aliases=['vol'])
+@app_commands.describe(volume="Volume from 0 to 100 (leave empty to see current)")
 async def volume(ctx, volume: int = None):
     """Change the volume (0-100)"""
     if not ctx.voice_client or not ctx.voice_client.source:
@@ -793,7 +808,7 @@ async def volume(ctx, volume: int = None):
     embed = discord.Embed(title="🔊 Volume Changed", description=f"Set volume to {volume}%", color=0x00ff00)
     await ctx.send(embed=embed)
 
-@bot.command(name='shuffle')
+@bot.hybrid_command(name='shuffle')
 async def shuffle(ctx):
     """Shuffle the queue"""
     queue = bot.get_queue(ctx.guild.id)
@@ -811,14 +826,15 @@ async def shuffle(ctx):
     embed = discord.Embed(title="🔀 Queue Shuffled", description="Shuffled the music queue", color=0x00ff00)
     await ctx.send(embed=embed)
 
-@bot.command(name='panel')
+@bot.hybrid_command(name='panel')
 async def control_panel(ctx):
     """Show the music control buttons panel."""
     view = MusicControlView(bot)
     msg = await ctx.send("🎛️ Music Controls", view=view)
     bot.register_control_message(ctx.guild.id, msg)
 
-@bot.command(name='loop')
+@bot.hybrid_command(name='loop')
+@app_commands.describe(mode="off, song, or queue (leave empty to see current)")
 async def loop_command(ctx, mode: str = None):
     """Set loop mode: off, song, queue"""
     if mode is None:
@@ -843,7 +859,7 @@ async def loop_command(ctx, mode: str = None):
     
     await ctx.send(embed=embed)
 
-@bot.command(name='nowplaying', aliases=['np'])
+@bot.hybrid_command(name='nowplaying', aliases=['np'])
 async def now_playing(ctx):
     """Show the currently playing song"""
     current = bot.current_song.get(ctx.guild.id)
@@ -873,9 +889,11 @@ async def now_playing(ctx):
     
     await ctx.send(embed=embed)
 
-@bot.command(name='forceplay', aliases=['fp'])
-async def force_play(ctx, *, query):
+@bot.hybrid_command(name='forceplay', aliases=['fp'])
+@app_commands.describe(query="Song name or URL")
+async def force_play(ctx, *, query: str):
     """Force play with alternative extraction method"""
+    await defer_if_slash(ctx)
     if not ctx.author.voice:
         embed = discord.Embed(title="❌ Error", description="You need to be in a voice channel!", color=0xff0000)
         await ctx.send(embed=embed)
@@ -927,9 +945,11 @@ async def force_play(ctx, *, query):
                             color=0xff0000)
         await ctx.send(embed=embed)
 
-@bot.command(name='test')
-async def test_video(ctx, *, url):
+@bot.hybrid_command(name='test')
+@app_commands.describe(url="Video URL to test")
+async def test_video(ctx, *, url: str):
     """Test if a video URL works"""
+    await defer_if_slash(ctx)
     try:
         loop = asyncio.get_event_loop()
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
@@ -953,9 +973,10 @@ async def test_video(ctx, *, url):
                             color=0xff0000)
         await ctx.send(embed=embed)
 
-@bot.command(name='formats')
+@bot.hybrid_command(name='formats')
 async def list_formats(ctx, *, url: str):
     """List available formats for a YouTube URL (debugging helper)."""
+    await defer_if_slash(ctx)
     try:
         loop = asyncio.get_event_loop()
         info = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
@@ -977,7 +998,7 @@ async def list_formats(ctx, *, url: str):
     except Exception as e:
         await ctx.send(f"Failed to list formats: {e}")
 
-@bot.command(name='commands')
+@bot.hybrid_command(name='commands')
 async def help_command(ctx):
     """Show all available commands"""
     embed = discord.Embed(title="🎵 Music Bot Commands", 
@@ -1012,7 +1033,7 @@ async def help_command(ctx):
     for name, value in commands_list:
         embed.add_field(name=name, value=value, inline=False)
     
-    embed.set_footer(text="Supports YouTube URLs, YouTube searches, Spotify tracks, and Spotify playlists!")
+    embed.set_footer(text="Every command also works with / (e.g. /play). Supports YouTube URLs, YouTube searches, Spotify tracks, and Spotify playlists!")
     await ctx.send(embed=embed)
 
 # Error handling
