@@ -498,9 +498,11 @@ async def add_to_queue(ctx, query: str, custom_title: str | None = None, silent:
     try:
         loop = asyncio.get_event_loop()
         # Primary extraction
+        primary_error = None
         try:
             data = await loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
         except Exception as e:
+            primary_error = e
             print(f"Primary extraction failed: {e}")
             # Fallback extraction
             fallback_opts = {
@@ -525,10 +527,15 @@ async def add_to_queue(ctx, query: str, custom_title: str | None = None, silent:
                 print(f"Fallback extraction failed: {e2}")
                 raise Exception("Could not extract video information. The video might be unavailable or restricted.")
 
-        if 'entries' in data:
-            data = data['entries'][0]
+        if data and 'entries' in data:
+            data = data['entries'][0] if data['entries'] else None
 
         if not data or not data.get('webpage_url'):
+            if primary_error and 'confirm you' in str(primary_error):
+                raise Exception("YouTube is blocking this server's IP (\"Sign in to confirm you're not a bot\"). "
+                                "Set YTDLP_COOKIE_FILE with exported YouTube cookies, or host the bot elsewhere.")
+            if primary_error:
+                raise Exception(str(primary_error))
             raise Exception("No valid video data found")
 
         song_info = {
