@@ -171,13 +171,6 @@ class MusicBot(commands.Bot):
         # Track scheduled cleanup tasks per guild
         self._cleanup_tasks = {}
 
-    async def setup_hook(self):
-        # Hosts like Render require a web service to listen on $PORT; also lets
-        # an uptime monitor ping the bot so free instances don't spin down.
-        port = os.getenv('PORT')
-        if port:
-            await start_health_server(int(port))
-
     async def on_ready(self):
         print(f'🎵 {self.user} has connected to Discord!')
         print(f'Bot is ready in {len(self.guilds)} guilds')
@@ -1043,4 +1036,16 @@ if __name__ == "__main__":
         print("ERROR: Discord token not found! Please check your .env file.")
     else:
         print("🚀 Starting Discord Music Bot...")
-        bot.run(DISCORD_TOKEN)
+        discord.utils.setup_logging()
+
+        async def main():
+            # Hosts like Render require a web service to listen on $PORT; bind it
+            # before logging in so the deploy's port check passes even if login
+            # is slow. It also lets an uptime monitor keep free instances awake.
+            port = os.getenv('PORT')
+            if port:
+                await start_health_server(int(port))
+            async with bot:
+                await bot.start(DISCORD_TOKEN)
+
+        asyncio.run(main())
