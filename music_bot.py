@@ -1046,6 +1046,20 @@ if __name__ == "__main__":
             if port:
                 await start_health_server(int(port))
             async with bot:
-                await bot.start(DISCORD_TOKEN)
+                # Shared hosting IPs (e.g. Render free tier) often get temporarily
+                # blocked by Discord/Cloudflare (HTTP 429). Wait and retry instead
+                # of crash-looping, since every restart extends the block.
+                delay = 60
+                while True:
+                    try:
+                        await bot.login(DISCORD_TOKEN)
+                        break
+                    except discord.HTTPException as e:
+                        if e.status != 429:
+                            raise
+                        print(f"Discord rate-limited this host's IP (429). Retrying in {delay}s...")
+                        await asyncio.sleep(delay)
+                        delay = min(delay * 2, 1800)
+                await bot.connect()
 
         asyncio.run(main())
