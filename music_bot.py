@@ -1057,6 +1057,8 @@ if __name__ == "__main__":
                     except discord.HTTPException as e:
                         if e.status != 429:
                             raise
+                        # Each login attempt opens a new HTTP session; close the failed one
+                        await bot.http.close()
                         print(f"Discord rate-limited this host's IP (429). Retrying in {delay}s...")
                         await asyncio.sleep(delay)
                         delay = min(delay * 2, 1800)
